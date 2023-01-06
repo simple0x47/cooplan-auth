@@ -5,85 +5,87 @@ use reqwest::header::{HeaderMap, HeaderValue};
 use serde_json::{Map, Number, Value};
 use std::sync::Arc;
 use std::time::Instant;
+use tokio::sync::Mutex;
 
 const EXPIRATION_ERROR_MARGIN_IN_SECONDS: u64 = 5;
 
 pub struct Identity {
     identity_provider_url: String,
     client_data: ClientData,
-    token: Option<Arc<Token>>,
+    token: Arc<Mutex<Token>>,
 }
 
 impl Identity {
-    pub fn new(identity_provider_url: String, client_data: ClientData) -> Identity {
-        Identity {
+    pub async fn try_new(
+        identity_provider_url: String,
+        client_data: ClientData,
+    ) -> Result<Identity, Error> {
+        let token = try_get_new_token(&identity_provider_url, &client_data).await?;
+
+        Ok(Identity {
             identity_provider_url,
             client_data,
-            token: None,
+            token: Arc::new(Mutex::new(token)),
+        })
+    }
+
+    pub async fn try_get_token(&self) -> Result<String, Error> {
+        let mut token = self.token.lock().await;
+
+        if token.is_expired() {
+            *token = try_get_new_token(&self.identity_provider_url, &self.client_data).await?;
         }
+
+        Ok(token.value().to_string())
     }
+}
 
-    pub async fn try_get_token(&mut self) -> Result<Arc<Token>, Error> {
-        let token = match &self.token {
-            Some(token) => {
-                if token.is_expired() {
-                    self.get_new_token().await?
-                } else {
-                    token.clone()
-                }
-            }
-            None => self.get_new_token().await?,
-        };
+async fn try_get_new_token(
+    identity_provider_url: &String,
+    client_data: &ClientData,
+) -> Result<Token, Error> {
+    let client = reqwest::Client::new();
+    let mut header = HeaderMap::new();
+    let content_type_value = match HeaderValue::from_str("application/json") {
+        Ok(value) => value,
+        Err(error) => {
+            return Err(Error::new(
+                ErrorKind::InternalFailure,
+                format!("failed to set content type: {}", error),
+            ))
+        }
+    };
+    header.insert("content-type", content_type_value);
 
-        Ok(token)
-    }
+    let response = match client
+        .post(identity_provider_url)
+        .headers(header)
+        .body(client_data.json())
+        .send()
+        .await
+    {
+        Ok(response) => response,
+        Err(error) => {
+            return Err(Error::new(
+                ErrorKind::IdentityProviderFailure,
+                format!("failed to get new token: {}", error),
+            ))
+        }
+    };
 
-    async fn get_new_token(&mut self) -> Result<Arc<Token>, Error> {
-        let client = reqwest::Client::new();
-        let mut header = HeaderMap::new();
-        let content_type_value = match HeaderValue::from_str("application/json") {
-            Ok(value) => value,
-            Err(error) => {
-                return Err(Error::new(
-                    ErrorKind::InternalFailure,
-                    format!("failed to set content type: {}", error),
-                ))
-            }
-        };
-        header.insert("content-type", content_type_value);
+    let response_object = match response.json::<Map<String, Value>>().await {
+        Ok(response_object) => response_object,
+        Err(error) => {
+            return Err(Error::new(
+                ErrorKind::IdentityProviderFailure,
+                format!("failed to parse response: {}", error),
+            ))
+        }
+    };
 
-        let response = match client
-            .post(&self.identity_provider_url)
-            .headers(header)
-            .body(self.client_data.json())
-            .send()
-            .await
-        {
-            Ok(response) => response,
-            Err(error) => {
-                return Err(Error::new(
-                    ErrorKind::IdentityProviderFailure,
-                    format!("failed to get new token: {}", error),
-                ))
-            }
-        };
+    let token = extract_token_from_response_object(response_object)?;
 
-        let response_object = match response.json::<Map<String, Value>>().await {
-            Ok(response_object) => response_object,
-            Err(error) => {
-                return Err(Error::new(
-                    ErrorKind::IdentityProviderFailure,
-                    format!("failed to parse response: {}", error),
-                ))
-            }
-        };
-
-        let token = Arc::new(extract_token_from_response_object(response_object)?);
-
-        self.token = Some(token.clone());
-
-        Ok(token)
-    }
+    Ok(token)
 }
 
 fn extract_token_from_response_object(

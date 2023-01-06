@@ -15,10 +15,11 @@ async fn get_token_successfully_using_environment_variables() {
     let audience = std::env::var(TOKEN_AUDIENCE).unwrap();
 
     let client_data = ClientData::new(client_id, client_secret, audience);
-    let mut identity = Identity::new(identity_provider, client_data);
+    let mut identity = Identity::try_new(identity_provider, client_data)
+        .await
+        .unwrap();
 
     let token = identity.try_get_token().await.unwrap();
 
-    assert!(!token.is_expired());
-    assert!(!token.value().is_empty())
+    assert!(!token.is_empty())
 }
