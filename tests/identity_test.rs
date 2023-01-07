@@ -21,5 +21,6 @@ async fn get_token_successfully_using_environment_variables() {
 
     let token = identity.try_get_token().await.unwrap();
 
-    assert!(!token.is_empty())
+    assert!(!token.is_expired());
+    assert!(!token.value().is_empty());
 }
