@@ -2,7 +2,7 @@
 name = "cooplan-auth"
 version = "0.1.2"
 edition = "2021"
-description = "Basic utlity for token management meant to be used with OpenId Connect"
+description = "Basic utility for token management meant to be used with OpenId Connect"
 license = "MIT"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
