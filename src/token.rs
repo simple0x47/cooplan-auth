@@ -1,6 +1,5 @@
 use std::time::Instant;
 
-#[derive(Clone)]
 pub struct Token {
     token: String,
     generated_at: Instant,
@@ -18,6 +17,10 @@ impl Token {
 
     pub fn is_expired(&self) -> bool {
         self.generated_at.elapsed().as_secs() > self.validity_in_seconds
+    }
+
+    pub fn does_expire_after(&self, seconds: u64) -> bool {
+        (self.generated_at.elapsed().as_secs() + seconds) > self.validity_in_seconds
     }
 
     pub fn value(&self) -> &str {
