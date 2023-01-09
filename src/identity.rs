@@ -2,7 +2,7 @@ use crate::client_data::ClientData;
 use crate::error::{Error, ErrorKind};
 use crate::token::Token;
 use reqwest::header::{HeaderMap, HeaderValue};
-use serde_json::{Map, Number, Value};
+use serde_json::{Map, Value};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -27,6 +27,18 @@ impl Identity {
     pub async fn try_get_token(&self) -> Result<Arc<Token>, Error> {
         let token =
             Arc::new(try_get_new_token(&self.identity_provider_url, &self.client_data).await?);
+
+        Ok(token)
+    }
+
+    pub async fn renew_token_if_expiring_after_seconds(
+        &self,
+        token: Arc<Token>,
+        expiring_after_seconds: u64,
+    ) -> Result<Arc<Token>, Error> {
+        if token.does_expire_after(expiring_after_seconds) {
+            return self.try_get_token().await;
+        }
 
         Ok(token)
     }
@@ -124,6 +136,8 @@ fn extract_token_from_response_object(
 }
 
 #[cfg(test)]
+use serde_json::Number;
+
 #[test]
 fn durations_lower_or_equal_to_error_margin_are_rejected() {
     let mut response_object = Map::new();
